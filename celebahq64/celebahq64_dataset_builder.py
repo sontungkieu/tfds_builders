@@ -36,7 +36,7 @@ class Builder(tfds.core.GeneratorBasedBuilder):
 
     from datasets import load_dataset
     import numpy as np
-    dataset = load_dataset("mattymchen/celeba-hq", split='train', cache_dir='/home/kvfrans/gcs/hf_cache')
+    dataset = load_dataset("mattymchen/celeba-hq", split='train')
     dataset = dataset.to_tf_dataset()
 
     def deserialization_fn(data):
