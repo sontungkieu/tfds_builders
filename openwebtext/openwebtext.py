@@ -31,7 +31,7 @@ class Builder(tfds.core.GeneratorBasedBuilder):
 
     from datasets import load_dataset
     import numpy as np
-    dataset = load_dataset("Skylion007/openwebtext", split=split, cache_dir='/home/kvfrans/gcs/hf_cache')
+    dataset = load_dataset("Skylion007/openwebtext", split=split)
     dataset = dataset.to_tf_dataset()
     dataset = tfds.as_numpy(dataset)
     for i, example in enumerate(dataset):
