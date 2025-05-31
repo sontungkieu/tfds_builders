@@ -27,21 +27,22 @@ class Builder(tfds.core.GeneratorBasedBuilder):
 
     # TODO(celebahqhq): Returns the Dict[split names, Iterator[Key, Example]]
     return {
-        'train': self._generate_examples(),
+        'train': self._generate_examples('train'),
+        'validation': self._generate_examples('validation'),
     }
 
-  def _generate_examples(self):
+  def _generate_examples(self, split):
     """Yields examples."""
     # TODO(celebahqhq): Yields (key, example) tuples from the dataset
 
     from datasets import load_dataset
     import numpy as np
-    dataset = load_dataset("mattymchen/celeba-hq", split='train', cache_dir='/home/kvfrans/gcs/hf_cache')
+    dataset = load_dataset("mattymchen/celeba-hq", split=split)
     dataset = dataset.to_tf_dataset()
 
     def deserialization_fn(data):
       image = data['image']
-      image = tf.image.resize(image, (256, 256), method=tf.image.ResizeMethod.BICUBIC, antialias=True)
+      image = tf.image.resize(image, (256, 256), method=tf.image.ResizeMethod.BILINEAR, antialias=True)
       return {'image': image, 'label': data['label']}
 
     dataset = dataset.map(deserialization_fn)
