@@ -23,17 +23,12 @@ class Builder(tfds.core.GeneratorBasedBuilder):
 
   def _split_generators(self, dl_manager: tfds.download.DownloadManager):
     """Returns SplitGenerators."""
+    # Fix: Return dict of split_name to lambda generator callable (compatible with older TFDS versions)
+    # This avoids SplitGenerator object, directly providing the iterable generator
     return {
-        'train': self._split_generator(split_type='train'),
-        # 'validation': self._split_generator(split_type='validation'),  # Uncomment nếu manual split
+        'train': lambda: self._generate_examples(split='train'),
+        # 'validation': lambda: self._generate_examples(split='validation'),  # Uncomment nếu manual split
     }
-
-  def _split_generator(self, split_type):
-    """Helper to create SplitGenerator."""
-    return tfds.core.SplitGenerator(
-        name=split_type,  # Fix: Use 'name' instead of 'split_name' (TFDS API)
-        gen_kwargs={'split': split_type},
-    )
 
   def _generate_examples(self, **kwargs):
     """Yields examples."""
