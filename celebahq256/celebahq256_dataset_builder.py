@@ -1,40 +1,40 @@
-"""celebahq256 dataset."""
-
-import tensorflow_datasets as tfds
+import os
+from datasets import load_dataset
+import cv2
 import numpy as np
-import cv2  # Faster resize (install if needed: !pip install opencv-python)
+from tqdm import tqdm  # Progress bar mượt
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import pandas as pd
+from pathlib import Path
 
-class Builder(tfds.core.GeneratorBasedBuilder):
-  VERSION = tfds.core.Version('1.0.0')
-  RELEASE_NOTES = {'1.0.0': 'Initial release.'}
+# Tạo dir
+os.makedirs('/kaggle/working/resized_images', exist_ok=True)
+output_dir = Path('/kaggle/working/resized_images')
 
-  def _info(self) -> tfds.core.DatasetInfo:
-    return self.dataset_info_from_configs(
-        features=tfds.features.FeaturesDict({
-            'image': tfds.features.Image(shape=(256, 256, 3), encoding_format='png'),
-            'label': tfds.features.ClassLabel(names=['female', 'male']),
-        }),
-    )
+def resize_and_save(ex):
+    """Resize one image and save as PNG."""
+    i, example = ex
+    img_np = np.array(example['image'])
+    resized = cv2.resize(img_np, (256, 256), interpolation=cv2.INTER_LANCZOS4)
+    filename = f"{i:06d}_{example['label']}.png"
+    filepath = output_dir / filename
+    cv2.imwrite(str(filepath), cv2.cvtColor(resized, cv2.COLOR_RGB2BGR))  # BGR for cv2.imwrite
+    return {'id': i, 'image_path': str(filepath), 'label': example['label']}
 
-  def _split_generators(self, dl_manager):
-    return {'train': self._generate_examples('train')}
+# Load dataset
+print("Loading HF dataset...")
+dataset = load_dataset("mattymchen/celeba-hq", split='train')
+total = len(dataset)
 
-  def _generate_examples(self, split):
-    from datasets import load_dataset
+# Parallel resize với ThreadPool (multi-thread, I/O + CPU bound)
+print("Starting parallel resize...")
+with ThreadPoolExecutor(max_workers=8) as executor:  # Fix: 'as executor' to define variable
+    futures = {executor.submit(resize_and_save, (i, ex)): i for i, ex in enumerate(dataset)}
+    metadata = []
+    for future in tqdm(as_completed(futures), total=total, desc="Resizing & Saving"):
+        metadata.append(future.result())
 
-    dataset = load_dataset("mattymchen/celeba-hq", split=split)
-    total_samples = len(dataset)  # Known size for TFDS tqdm
-
-    def resize_image(image_pil):
-      img_np = np.array(image_pil)
-      resized = cv2.resize(img_np, (256, 256), interpolation=cv2.INTER_LANCZOS4)
-      return resized.astype(np.uint8)
-
-    # Iterate without custom tqdm to avoid interference with TFDS's tqdm
-    # TFDS will show "Generating train examples...: X examples [time, rate]"
-    for i, example in enumerate(dataset):
-      resized_img = resize_image(example['image'])
-      yield str(i), {
-          'image': resized_img,
-          'label': example['label'],
-      }
+# Save metadata CSV
+df = pd.DataFrame(metadata)
+df.to_csv('/kaggle/working/metadata.csv', index=False)
+print(f"Done! {total} images resized & saved. Metadata: /kaggle/working/metadata.csv")
