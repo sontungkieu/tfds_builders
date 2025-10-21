@@ -1,40 +1,38 @@
-import os
-from datasets import load_dataset
-import cv2
+"""celebahq256 dataset."""
+
+import tensorflow_datasets as tfds
 import numpy as np
-from tqdm import tqdm  # Progress bar mượt
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import pandas as pd
-from pathlib import Path
+from PIL import Image  # Để load PNG nhanh
 
-# Tạo dir
-os.makedirs('/kaggle/working/resized_images', exist_ok=True)
-output_dir = Path('/kaggle/working/resized_images')
+class Builder(tfds.core.GeneratorBasedBuilder):
+  VERSION = tfds.core.Version('1.0.0')
+  RELEASE_NOTES = {'1.0.0': 'Initial release.'}
 
-def resize_and_save(ex):
-    """Resize one image and save as PNG."""
-    i, example = ex
-    img_np = np.array(example['image'])
-    resized = cv2.resize(img_np, (256, 256), interpolation=cv2.INTER_LANCZOS4)
-    filename = f"{i:06d}_{example['label']}.png"
-    filepath = output_dir / filename
-    cv2.imwrite(str(filepath), cv2.cvtColor(resized, cv2.COLOR_RGB2BGR))  # BGR for cv2.imwrite
-    return {'id': i, 'image_path': str(filepath), 'label': example['label']}
+  def _info(self) -> tfds.core.DatasetInfo:
+    return self.dataset_info_from_configs(
+        features=tfds.features.FeaturesDict({
+            'image': tfds.features.Image(shape=(256, 256, 3), encoding_format='png'),
+            'label': tfds.features.ClassLabel(names=['female', 'male']),
+        }),
+    )
 
-# Load dataset
-print("Loading HF dataset...")
-dataset = load_dataset("mattymchen/celeba-hq", split='train')
-total = len(dataset)
+  def _split_generators(self, dl_manager):
+    return {'train': self._generate_examples('train')}
 
-# Parallel resize với ThreadPool (multi-thread, I/O + CPU bound)
-print("Starting parallel resize...")
-with ThreadPoolExecutor(max_workers=8) as executor:  # Fix: 'as executor' to define variable
-    futures = {executor.submit(resize_and_save, (i, ex)): i for i, ex in enumerate(dataset)}
-    metadata = []
-    for future in tqdm(as_completed(futures), total=total, desc="Resizing & Saving"):
-        metadata.append(future.result())
+  def _generate_examples(self, split):
+    # Lazy imports to avoid module-level issues
+    import pandas as pd
+    from pathlib import Path
 
-# Save metadata CSV
-df = pd.DataFrame(metadata)
-df.to_csv('/kaggle/working/metadata.csv', index=False)
-print(f"Done! {total} images resized & saved. Metadata: /kaggle/working/metadata.csv")
+    # Load metadata
+    df = pd.read_csv('/kaggle/working/metadata.csv')
+    image_dir = Path('/kaggle/working/resized_images')
+
+    # Yield từ files (no resize, siêu nhanh)
+    for _, row in df.iterrows():
+      image_path = row['image_path']
+      image = np.array(Image.open(image_path))  # Load PNG → np array
+      yield str(row['id']), {
+          'image': image,
+          'label': row['label'],
+      }
