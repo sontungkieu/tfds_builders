@@ -37,18 +37,28 @@ class Builder(tfds.core.GeneratorBasedBuilder):
 
     from datasets import load_dataset
     import numpy as np
+    import tensorflow as tf  # Ensure TF is imported for tf.image
+
     dataset = load_dataset("mattymchen/celeba-hq", split=split)
-    dataset = dataset.to_tf_dataset()
+    # Fix: Provide the required positional arguments to to_tf_dataset
+    # columns: list of features to include (all available: 'image', 'label')
+    # batch_size=1: Process one example at a time (avoids large batches)
+    # shuffle=False: No shuffling for deterministic generation
+    # collate_fn=None: Default collation (no custom needed for batch_size=1)
+    dataset = dataset.to_tf_dataset(['image', 'label'], 1, False, None)
 
     def deserialization_fn(data):
-      image = data['image']
-      image = tf.image.resize(image, (256, 256), method=tf.image.ResizeMethod.BILINEAR, antialias=True)
-      return {'image': image, 'label': data['label']}
+        image = data['image']  # Shape: (1, H, W, 3) due to batch_size=1
+        image = tf.image.resize(image, (256, 256), method=tf.image.ResizeMethod.BILINEAR, antialias=True)
+        # Squeeze the batch dim for label if needed, but since it's scalar per example, data['label'] is (1,)
+        # Return as-is; we'll handle in yield
+        return {'image': image, 'label': data['label']}
 
     dataset = dataset.map(deserialization_fn)
     dataset = tfds.as_numpy(dataset)
     for i, example in enumerate(dataset):
-      yield i, {
-          'image': example['image'].astype(np.uint8),
-          'label': example['label'],
-      }
+        # Since batched=1, squeeze the batch dimension
+        yield i, {
+            'image': example['image'][0].astype(np.uint8),  # Remove batch dim: from (1,256,256,3) to (256,256,3)
+            'label': example['label'][0],  # Remove batch dim for scalar label
+        }
