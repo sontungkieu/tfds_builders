@@ -31,7 +31,7 @@ class Builder(tfds.core.GeneratorBasedBuilder):
   def _split_generator(self, split_type):
     """Helper to create SplitGenerator."""
     return tfds.core.SplitGenerator(
-        split_name=split_type,
+        name=split_type,  # Fix: Use 'name' instead of 'split_name' (TFDS API)
         gen_kwargs={'split': split_type},
     )
 
