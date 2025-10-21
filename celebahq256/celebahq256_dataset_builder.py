@@ -2,6 +2,9 @@
 
 import tensorflow_datasets as tfds
 import tensorflow as tf
+from PIL import Image
+import numpy as np
+from datasets import load_dataset
 
 class Builder(tfds.core.GeneratorBasedBuilder):
   """DatasetBuilder for celebahq256 dataset."""
@@ -17,48 +20,39 @@ class Builder(tfds.core.GeneratorBasedBuilder):
     return self.dataset_info_from_configs(
         features=tfds.features.FeaturesDict({
             # These are the features of your dataset like images, labels ...
-            'image': tfds.features.Image(shape=(256, 256, 3)),
+            'image': tfds.features.Image(shape=(256, 256, 3), encoding_format='png'),
             'label': tfds.features.ClassLabel(names=['female', 'male']),
         }),
+        # homepage='https://huggingface.co/datasets/mattymchen/celeba-hq',  # Optional
     )
 
   def _split_generators(self, dl_manager: tfds.download.DownloadManager):
     """Returns SplitGenerators."""
-
-    # TODO(celebahqhq): Returns the Dict[split names, Iterator[Key, Example]]
+    # The dataset only has a 'train' split; adjust if you want to split it manually
     return {
-        'train': self._generate_examples('train'),
-        'validation': self._generate_examples('validation'),
+        'train': self._split_generator(split_type='train'),
+        # 'validation': self._split_generator(split_type='validation'),  # Commented out; dataset lacks this split
     }
 
-  def _generate_examples(self, split):
+  def _split_generator(self, split_type):
+    """Helper to create SplitGenerator."""
+    return tfds.core.SplitGenerator(
+        split_name=split_type,
+        gen_kwargs={'split': split_type},
+    )
+
+  def _generate_examples(self, **kwargs):
     """Yields examples."""
+    split = kwargs['split']
     # TODO(celebahqhq): Yields (key, example) tuples from the dataset
 
-    from datasets import load_dataset
-    import numpy as np
-    import tensorflow as tf  # Ensure TF is imported for tf.image
-
     dataset = load_dataset("mattymchen/celeba-hq", split=split)
-    # Fix: Provide the required positional arguments to to_tf_dataset
-    # columns: list of features to include (all available: 'image', 'label')
-    # batch_size=1: Process one example at a time (avoids large batches)
-    # shuffle=False: No shuffling for deterministic generation
-    # collate_fn=None: Default collation (no custom needed for batch_size=1)
-    dataset = dataset.to_tf_dataset(['image', 'label'], 1, False, None)
-
-    def deserialization_fn(data):
-        image = data['image']  # Shape: (1, H, W, 3) due to batch_size=1
-        image = tf.image.resize(image, (256, 256), method=tf.image.ResizeMethod.BILINEAR, antialias=True)
-        # Squeeze the batch dim for label if needed, but since it's scalar per example, data['label'] is (1,)
-        # Return as-is; we'll handle in yield
-        return {'image': image, 'label': data['label']}
-
-    dataset = dataset.map(deserialization_fn)
-    dataset = tfds.as_numpy(dataset)
     for i, example in enumerate(dataset):
-        # Since batched=1, squeeze the batch dimension
-        yield i, {
-            'image': example['image'][0].astype(np.uint8),  # Remove batch dim: from (1,256,256,3) to (256,256,3)
-            'label': example['label'][0],  # Remove batch dim for scalar label
+        # Resize image using PIL (efficient, no TF needed; LANCZOS ≈ bilinear + antialias)
+        image = example['image'].resize((256, 256), Image.Resampling.LANCZOS)
+        image_np = np.array(image, dtype=np.uint8)
+        label = example['label']  # int: 0 (female) or 1 (male)
+        yield str(i), {
+            'image': image_np,
+            'label': label,
         }
