@@ -15,10 +15,12 @@
 
 """Imagenet datasets."""
 
+import csv
 import io
 import os
 
 from absl import logging
+import tensorflow as tf
 from tensorflow_datasets.core.utils.lazy_imports_utils import tensorflow as tf
 from tensorflow_datasets.datasets.imagenet2012 import imagenet_common
 import tensorflow_datasets.public_api as tfds
@@ -139,38 +141,80 @@ class Builder(tfds.core.GeneratorBasedBuilder):
     elif image_fname in PNG_IMAGES:
       image = io.BytesIO(tfds.core.utils.png_to_jpeg(image.read()))
     return image
+      
+def _generate_examples(self, directory_path, is_train=True):
+    """
+    Custom generator cho Kaggle ImageNet (2-space indentation).
+    """
+    import csv
+    import os
+    import tensorflow as tf
 
-  def _generate_examples(
-      self, archive, validation_labels=None, labels_exist=True
-  ):
-    """Yields examples."""
-    if not labels_exist:  # Test split
-      for key, example in imagenet_common.generate_examples_test(archive):
-        yield key, example
-    if validation_labels:  # Validation split
-      for key, example in imagenet_common.generate_examples_validation(
-          archive, validation_labels
-      ):
-        yield key, example
-    # Training split. Main archive contains archives names after a synset noun.
-    # Each sub-archive contains pictures associated to that synset.
-    for fname, fobj in archive:
-      label = fname[:-4]  # fname is something like 'n01632458.tar'
-      # TODO(b/117643231): in py3, the following lines trigger tarfile module
-      # to call `fobj.seekable()`, which Gfile doesn't have. We should find an
-      # alternative, as this loads ~150MB in RAM.
-      fobj_mem = io.BytesIO(fobj.read())
-      for image_fname, image in tfds.download.iter_archive(
-          fobj_mem, tfds.download.ExtractMethod.TAR_STREAM
-      ):
-        image = self._fix_image(image_fname, image)
-        record = {
-            'file_name': image_fname,
-            'image': image,
-            'label': label,
-        }
-        yield image_fname, record
+    # ---------------------------------------------------------
+    # CASE 1: TẬP TRAIN (Đã chia folder sẵn)
+    # Path: .../CLS-LOC/train/n01440764/n01440764_10026.JPEG
+    # ---------------------------------------------------------
+    if is_train:
+      # directory_path trỏ vào folder 'train'
+      classes = tf.io.gfile.listdir(directory_path)
+      
+      for class_name in classes:
+        class_dir = os.path.join(directory_path, class_name)
+        if not tf.io.gfile.isdir(class_dir): continue
+            
+        for fname in tf.io.gfile.listdir(class_dir):
+          if not fname.lower().endswith('jpeg'): continue
+          
+          fpath = os.path.join(class_dir, fname)
+          yield f"{class_name}/{fname}", {
+              'image': fpath,
+              'label': class_name, # Label là tên folder (ví dụ: n01440764)
+              'file_name': fname,
+          }
 
+    # ---------------------------------------------------------
+    # CASE 2: TẬP VALIDATION (Flat folder + CSV mapping)
+    # Path: .../CLS-LOC/val/ILSVRC2012_val_00000001.JPEG
+    # Label File: .../LOC_val_solution.csv
+    # ---------------------------------------------------------
+    else:
+      # ĐƯỜNG DẪN CỨNG ĐẾN FILE CSV TRÊN KAGGLE
+      csv_path = '/kaggle/input/imagenet-object-localization-challenge/LOC_val_solution.csv'
+      
+      # 1. Tạo từ điển mapping: { 'ILSVRC2012_val_00000001': 'n01440764' }
+      val_map = {}
+      print(f"Loading labels from {csv_path}...")
+      
+      with open(csv_path, 'r') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+          # PredictionString có dạng: "n01440764 156 201 432 300"
+          # Ta split ra lấy phần tử đầu tiên là class ID
+          label_str = row['PredictionString'].split(' ')[0]
+          val_map[row['ImageId']] = label_str
+      
+      print(f"Loaded {len(val_map)} labels.")
+
+      # 2. Duyệt qua folder ảnh và map label
+      # directory_path trỏ vào folder 'val'
+      files = tf.io.gfile.listdir(directory_path)
+      
+      for fname in files:
+        if not fname.lower().endswith('jpeg'): continue
+        
+        # Tên file: ILSVRC2012_val_00000001.JPEG -> Lấy ID: ILSVRC2012_val_00000001
+        image_id = os.path.splitext(fname)[0]
+        
+        # Lấy label từ dict
+        if image_id in val_map:
+          label = val_map[image_id]
+          fpath = os.path.join(directory_path, fname)
+          
+          yield image_id, {
+              'image': fpath,
+              'label': label, # Trả về class ID (ví dụ: n01440764)
+              'file_name': fname,
+          }
 
 def _add_split_if_exists(split_list, split, split_path, dl_manager, **kwargs):
   """Add split to given list of splits only if the file exists."""
